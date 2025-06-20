@@ -29,6 +29,8 @@ const HEATMAP_GRID_SIZE = 20;
 const HEATMAP_DECAY_RATE = 0.95;
 const HEATMAP_UPDATE_INTERVAL = 1000; // ms
 
+const backendUrl = import.meta.env.VITE_BACKEND_URL || 'ws://localhost:8000';
+
 export const useDetections = () => {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [tracks, setTracks] = useState<Map<number, Track>>(new Map());
@@ -50,7 +52,7 @@ export const useDetections = () => {
   }, []);
 
   useEffect(() => {
-    const detectionWs = new WebSocket('ws://localhost:8000/ws/detections');
+    const detectionWs = new WebSocket(`${backendUrl}/ws/detections`);
     setConnectionStatus('connecting');
 
     detectionWs.onopen = () => {

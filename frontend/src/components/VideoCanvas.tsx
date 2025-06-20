@@ -23,6 +23,8 @@ type VideoCanvasProps = {
   heatmap: number[];
 };
 
+const backendUrl = import.meta.env.VITE_BACKEND_URL || 'ws://localhost:8000';
+
 const VideoCanvas: React.FC<VideoCanvasProps> = ({ onBoxClick, boxes, tracks, onImageCapture, viewMode, heatmap }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,7 +72,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({ onBoxClick, boxes, tracks, on
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const wsUrl = `ws://localhost:8000/ws/${viewMode === 'fusion' ? 'rgb' : viewMode}`;
+    const wsUrl = `${backendUrl}/ws/${viewMode === 'fusion' ? 'rgb' : viewMode}`;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'blob';
 

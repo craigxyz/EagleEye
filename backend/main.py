@@ -33,6 +33,7 @@ model = YOLO('yolov8s.pt')
 detection_clients = set()
 camera_clients = {"rgb": set(), "thermal": set(), "event": set()}
 frame_queues = {"rgb": Queue(), "thermal": Queue(), "event": Queue()}
+camera_processes = []
 
 frame_skip = 2  # Process every 2nd frame
 frame_count = 0
@@ -159,6 +160,7 @@ async def broadcast_frames():
 
 @app.on_event("startup")
 async def startup_event():
+    global camera_processes
     # Define camera sources
     camera_sources = {
         "rgb": 2,
@@ -174,10 +176,20 @@ async def startup_event():
     ]
     
     for p in camera_processes:
+        p.daemon = True
         p.start()
         
     # Start the frame broadcasting loop
     asyncio.create_task(broadcast_frames())
+
+@app.on_event("shutdown")
+def shutdown_event():
+    print("Shutting down camera processes...")
+    for p in camera_processes:
+        if p.is_alive():
+            p.terminate()
+            p.join()
+    print("Camera processes shut down.")
 
 @app.get("/track_history")
 async def get_track_history():
