@@ -34,7 +34,7 @@ export const useDetections = () => {
   const [tracks, setTracks] = useState<Map<number, Track>>(new Map());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [heatmap, setHeatmap] = useState(() => new Array(HEATMAP_GRID_SIZE * HEATMAP_GRID_SIZE).fill(0));
-  const heatmapIntervalRef = useRef<number>();
+  const heatmapIntervalRef = useRef<number>(0);
 
   // Effect for decaying heatmap values
   useEffect(() => {
@@ -43,12 +43,14 @@ export const useDetections = () => {
     }, HEATMAP_UPDATE_INTERVAL);
 
     return () => {
-      clearInterval(heatmapIntervalRef.current);
+      if (heatmapIntervalRef.current) {
+        clearInterval(heatmapIntervalRef.current);
+      }
     };
   }, []);
 
   useEffect(() => {
-    const detectionWs = new WebSocket('ws://localhost:8000/ws');
+    const detectionWs = new WebSocket('ws://localhost:8000/ws/detections');
     setConnectionStatus('connecting');
 
     detectionWs.onopen = () => {

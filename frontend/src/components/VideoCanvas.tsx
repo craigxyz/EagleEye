@@ -29,7 +29,6 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({ onBoxClick, boxes, tracks, on
   const boxesRef = useRef<DetectionBox[]>([]);
   const imagedTrackIds = useRef(new Set<number>());
   const [videoError, setVideoError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const { settings } = useSettings();
 
   useEffect(() => {
@@ -63,70 +62,96 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({ onBoxClick, boxes, tracks, on
   }, [tracks, boxes, onImageCapture]);
 
   useEffect(() => {
-    const startVideo = async () => {
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setVideoError("Webcam access is not supported by this browser.");
-          return;
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            width: { ideal: 3840 }, 
-            height: { ideal: 2160 } 
-          } 
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().then(() => {
-            setVideoError(null);
-          }).catch(e => {
-            console.error("Video play failed:", e);
-            setVideoError("Video playback failed. Please check browser permissions.");
-          });
-        }
-      } catch (err) {
-        console.error("Error accessing webcam:", err);
-        setVideoError("Could not access the webcam. Please ensure it's not in use and that you've granted permission in your browser settings.");
-      }
-    };
+    // We no longer need to manage the video stream here,
+    // as it will be handled by the direct WebSocket connection.
+  }, []);
 
-    startVideo();
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    wsRef.current = new WebSocket('ws://localhost:8000/ws_upload');
-    wsRef.current.onopen = () => console.log('Upload WebSocket connected');
-    wsRef.current.onclose = () => console.log('Upload WebSocket disconnected');
-    wsRef.current.onerror = (err) => console.error('Upload WebSocket error:', err);
-    const uploadWs = wsRef.current;
+    const wsUrl = `ws://localhost:8000/ws/${viewMode === 'fusion' ? 'rgb' : viewMode}`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'blob';
 
-    const sendFrame = () => {
-      if (videoRef.current && videoRef.current.readyState === 4 && uploadWs.readyState === WebSocket.OPEN) {
-        const offscreenCanvas = document.createElement('canvas');
-        offscreenCanvas.width = videoRef.current.videoWidth;
-        offscreenCanvas.height = videoRef.current.videoHeight;
-        const ctx = offscreenCanvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(videoRef.current, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
-          offscreenCanvas.toBlob((blob) => {
-            if (blob && uploadWs.readyState === WebSocket.OPEN) {
-              uploadWs.send(blob);
+    ws.onopen = () => console.log(`${viewMode} WebSocket connected`);
+    ws.onclose = () => console.log(`${viewMode} WebSocket disconnected`);
+    ws.onerror = (err) => console.error(`${viewMode} WebSocket error:`, err);
+
+    const ctx = canvas.getContext('2d');
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'object' && ctx) {
+        const image = new Image();
+        image.src = URL.createObjectURL(event.data);
+        image.onload = () => {
+          canvas.width = image.width;
+          canvas.height = image.height;
+          ctx.drawImage(image, 0, 0);
+          URL.revokeObjectURL(image.src);
+
+          const scaleX = canvas.width / image.width;
+          const scaleY = canvas.height / image.height;
+
+          // Draw trails
+          if (settings.showTrails && ['rgb', 'fusion'].includes(viewMode)) {
+            tracks.forEach(track => {
+              if (track.positions.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(track.positions[0].x * scaleX, track.positions[0].y * scaleY);
+                for (let i = 1; i < track.positions.length; i++) {
+                  const opacity = i / track.positions.length;
+                  ctx.strokeStyle = `rgba(255, 255, 0, ${opacity * 0.8})`;
+                  ctx.lineTo(track.positions[i].x * scaleX, track.positions[i].y * scaleY);
+                  ctx.stroke();
+                  ctx.beginPath();
+                  ctx.moveTo(track.positions[i].x * scaleX, track.positions[i].y * scaleY);
+                }
+              }
+            });
+          }
+
+          // Draw detections
+          if (['rgb', 'fusion'].includes(viewMode)) {
+            boxes.forEach(([x1, y1, x2, y2, id, conf, cls_id]) => {
+              if (conf >= settings.confidenceThreshold) {
+                ctx.strokeStyle = settings.boxColor;
+                ctx.lineWidth = settings.boxThickness;
+                ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY);
+                
+                if (settings.showLabels) {
+                  ctx.fillStyle = settings.boxColor;
+                  ctx.font = '16px sans-serif';
+                  const label = `${CLASS_NAMES[cls_id] || 'Object'} ${id}`;
+                  ctx.fillText(label, x1 * scaleX, y1 * scaleY - 10);
+                }
+              }
+            });
+          }
+
+          // Draw heatmap
+          if (viewMode === 'event') {
+            const cellWidth = canvas.width / HEATMAP_GRID_SIZE;
+            const cellHeight = canvas.height / HEATMAP_GRID_SIZE;
+            for (let y = 0; y < HEATMAP_GRID_SIZE; y++) {
+              for (let x = 0; x < HEATMAP_GRID_SIZE; x++) {
+                const index = y * HEATMAP_GRID_SIZE + x;
+                const heat = heatmap[index];
+                if (heat > 0.01) {
+                  ctx.fillStyle = `rgba(255, 100, 0, ${heat * 0.6})`;
+                  ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth, cellHeight);
+                }
+              }
             }
-          }, 'image/jpeg', 0.8);
-        }
+          }
+        };
       }
     };
-
-    const frameInterval = window.setInterval(sendFrame, 1000 / 15);
 
     return () => {
-      clearInterval(frameInterval);
-      if (uploadWs.readyState === WebSocket.OPEN || uploadWs.readyState === WebSocket.CONNECTING) {
-        uploadWs.close();
-      }
-      if (videoRef.current && videoRef.current.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-      }
+      ws.close();
     };
-  }, []);
+  }, [viewMode, settings, boxes, tracks, heatmap]);
 
   // Effect for the rendering loop
   useEffect(() => {
