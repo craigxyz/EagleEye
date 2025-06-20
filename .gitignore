@@ -1,0 +1,23 @@
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+backend/venv/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Models
+*.pt
+
+# SSL Certificates
+*.pem 
